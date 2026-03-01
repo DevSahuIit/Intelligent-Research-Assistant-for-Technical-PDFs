@@ -2,7 +2,13 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.schema import Document
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langsmith import Client
@@ -33,6 +39,13 @@ st.title("Intelligent-Research-Assistant-for-Technical-PDFs")
 st.write("Upload The Pdfs")
 
 llm = ChatGroq(model ="llama-3.1-8b-instant" ,groq_api_key=api_key)
+
+
+#chat interface - making sessions
+session_id = st.text_input("Session ID",value = "default-session")
+## statefully manage Chat history
+if 'store' not in st.session_state:
+    st.session_state.store = {}
 
 
 ## for uploading the files
@@ -114,3 +127,80 @@ vectorstore = Chroma.from_documents(
     embedding=embeddings,
     persist_directory="./chroma_db"
 )
+
+retriever = vectorstore.as_retriever()
+
+rewrite_system_prompt = """
+You are a query rewriting assistant.
+
+Given the chat history and the latest user question,
+rewrite the question into a clear standalone question.
+
+Do NOT answer the question.
+Only return the rewritten standalone question.
+"""
+
+rewrite_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", rewrite_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ]
+)
+
+history_aware_retriever = create_history_aware_retriever(
+    llm,
+    retriever,
+    rewrite_prompt
+)
+
+
+qa_system_prompt = """
+You are an AI research assistant helping users analyze academic documents.
+
+Use ONLY the information provided inside the <context> tags to answer the question.
+
+<context>
+{context}
+</context>
+
+If the answer is not found in the provided documents, clearly state:
+"The answer is not found in the provided documents."
+
+Rules:
+- Do NOT use external knowledge.
+- Do NOT make assumptions.
+- Do NOT fabricate information.
+- Provide a precise and academically accurate response.
+- Mention source and page number if available.
+"""
+
+qa_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", qa_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ]
+)
+
+question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+
+rag_chain = create_retrieval_chain(
+    history_aware_retriever,
+    question_answer_chain
+)
+
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in st.session_state.store:
+        st.session_state.store[session_id] = ChatMessageHistory()
+    return st.session_state.store[session_id]
+
+conversational_rag_chain = RunnableWithMessageHistory(
+    rag_chain,
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="chat_history",
+    output_messages_key="answer",
+)
+
+
