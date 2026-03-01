@@ -3,8 +3,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
@@ -56,24 +56,26 @@ uploaded_files = st.sidebar.file_uploader(
     type="pdf",
     accept_multiple_files=True
 )
+
 ## separating all files and saving it on local temp 
 
-for uploaded_file in uploaded_files:   # From Streamlit uploader
-    file_path = f"./temp/{uploaded_file.name}"
-    
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    
-    loader = PyPDFLoader(file_path)
-    docs = loader.load()
-    
-    for doc in docs:
-        doc.metadata = {
-            "source": uploaded_file.name,        # Clean filename
-            "page": doc.metadata.get("page", 0) + 1  # Human-friendly page
-        }
-    
-    all_docs.extend(docs)
+if uploaded_files:
+    for uploaded_file in uploaded_files:   # From Streamlit uploader
+        file_path = f"./temp/{uploaded_file.name}"
+        
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        loader = PyPDFLoader(file_path)
+        docs = loader.load()
+        
+        for doc in docs:
+            doc.metadata = {
+                "source": uploaded_file.name,        # Clean filename
+                "page": doc.metadata.get("page", 0) + 1  # Human-friendly page
+            }
+        
+        all_docs.extend(docs)
 
 ## chunking the data we have
 # text_splitter = RecursiveCharacterTextSplitter(
@@ -119,7 +121,25 @@ def structure_aware_chunking(documents, chunk_size=800, chunk_overlap=100):
     
     return structured_docs
 
-split_docs = structure_aware_chunking(all_docs, chunk_size=800)
+if all_docs:
+
+    split_docs = structure_aware_chunking(all_docs, chunk_size=800)
+
+    if not split_docs:
+        st.error("No valid text found in PDFs.")
+        st.stop()
+
+    vectorstore = Chroma.from_documents(
+        documents=split_docs,
+        embedding=embeddings,
+        persist_directory="./chroma_db"
+    )
+
+    retriever = vectorstore.as_retriever()
+
+else:
+    st.warning("Please upload at least one PDF.")
+    st.stop()
 
 
 vectorstore = Chroma.from_documents(
@@ -202,5 +222,39 @@ conversational_rag_chain = RunnableWithMessageHistory(
     history_messages_key="chat_history",
     output_messages_key="answer",
 )
+
+user_input = st.text_input("Your Question:")
+
+if user_input:
+
+    response = conversational_rag_chain.invoke(
+        {"input": user_input},
+        config={
+            "configurable": {"session_id": session_id}
+        }
+    )
+
+    
+    st.write("### Assistant Response")
+    st.write(response["answer"])
+
+    # 🔥 Display Source + Page Numbers
+    if "context" in response:
+
+        st.write("### Sources: ")
+
+        seen = set()
+
+        for doc in response["context"]:
+            source = doc.metadata.get("source", "Unknown")
+            page = doc.metadata.get("page", "N/A")
+
+            citation = f"{source} (Page {page})"
+
+            # Avoid duplicates
+            if citation not in seen:
+                st.write("-", citation)
+                seen.add(citation)
+
 
 
