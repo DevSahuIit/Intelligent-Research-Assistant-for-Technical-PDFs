@@ -5,6 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
+from langsmith import Client
 import streamlit as st
 import re
 import os
@@ -12,12 +13,21 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "Advanced-bot"
 
 ## setting up the hugging face embeddings
 os.environ['HF_TOKEN'] = os.getenv("HUGGINFACE_TOKEN")
+
 embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
 api_key = os.getenv("GROQ")
+
+
+## setting up the langsmith and checking if it works 
+client = Client()
+st.write("LangSmith connected successfully")
+
 
 st.title("Intelligent-Research-Assistant-for-Technical-PDFs")
 st.write("Upload The Pdfs")
