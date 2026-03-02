@@ -32,6 +32,31 @@ embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
 ## setting up the pinecone 
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
+## creating a function to get the uploaded file of the user with his user id
+def get_uploaded_files(pc, index_name, namespace):
+    index = pc.Index(index_name)
+    
+    stats = index.describe_index_stats()
+    
+    if namespace not in stats["namespaces"]:
+        return []
+    
+    # Query some vectors to collect metadata
+    query_response = index.query(
+        namespace=namespace,
+        vector=[0.0] * 384,  # dummy vector
+        top_k=100,
+        include_metadata=True
+    )
+    
+    files = set()
+    
+    for match in query_response["matches"]:
+        metadata = match.get("metadata", {})
+        if "source" in metadata:
+            files.add(metadata["source"])
+    
+    return list(files)
 index_name = "research-assistant"
 
 # Create index if not exists
@@ -73,12 +98,24 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 member_id = st.sidebar.text_input("Enter Member ID")
+namespace = member_id
 
-if not member_id:
+
+if member_id:
+    uploaded_files_list = get_uploaded_files(pc, index_name, namespace)
+    
+    if uploaded_files_list:
+        st.sidebar.write("## Uploaded Files Earlier:")
+        for file in uploaded_files_list:
+            st.sidebar.write("-", file)
+    else:
+        st.sidebar.write("No documents uploaded before.")
+
+else :
     st.warning("Please enter your Member ID.")
     st.stop()
 
-namespace = member_id
+
 
 # =========================
 # MULTI-SESSION PER USER
