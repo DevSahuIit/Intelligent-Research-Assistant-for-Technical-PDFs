@@ -37,8 +37,6 @@ def get_uploaded_files(pc, index_name, namespace):
     index = pc.Index(index_name)
     stats = index.describe_index_stats()
 
-    st.write("All namespaces:", stats["namespaces"])
-    st.write("Current namespace:", namespace)
     # If namespace does not exist
     if namespace not in stats["namespaces"]:
         return []
@@ -79,8 +77,6 @@ if index_name not in existing_indexes:
             region="us-east-1"
         )
     )
-st.write("Available indexes:", pc.list_indexes().names())
-st.write("Using index:", index_name)
 api_key = os.getenv("GROQ")
 
 
@@ -91,7 +87,6 @@ client = Client()
 
 st.title("Intelligent-Research-Assistant-for-Technical-PDFs")
 st.write("LangSmith connected successfully")
-st.write("Upload The Pdfs")
 
 llm = ChatGroq(model ="llama-3.1-8b-instant" ,groq_api_key=api_key)
 
@@ -359,7 +354,6 @@ if user_input:
     st.write(response["answer"])
 
 
-    st.write("Retrieved Documents:")
     
     if "context" in response:
 
