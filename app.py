@@ -59,20 +59,15 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 # =========================
-# SESSION MANAGER (Sidebar)
+# SESSION MANAGER (Fixed)
 # =========================
 
 if "store" not in st.session_state:
     st.session_state.store = {}
 
-# Existing sessions list
-existing_sessions = list(st.session_state.store.keys())
-
-# Dropdown to select session
-selected_session = st.sidebar.selectbox(
-    "Select Session",
-    options=existing_sessions if existing_sessions else ["default-session"]
-)
+# Create default session if empty
+if not st.session_state.store:
+    st.session_state.store["default-session"] = ChatMessageHistory()
 
 # Input to create new session
 new_session = st.sidebar.text_input("Create New Session")
@@ -81,11 +76,16 @@ if st.sidebar.button("Add Session"):
     if new_session and new_session not in st.session_state.store:
         st.session_state.store[new_session] = ChatMessageHistory()
         st.sidebar.success(f"Session '{new_session}' created!")
-        selected_session = new_session
+        st.rerun()   # 🔥 THIS FIXES YOUR ISSUE
 
-# Final session_id used
-session_id = selected_session
+# Now regenerate session list AFTER possible addition
+existing_sessions = list(st.session_state.store.keys())
 
+# Dropdown selector
+session_id = st.sidebar.selectbox(
+    "Select Session",
+    options=existing_sessions,
+)
 
 
 ## separating all files and saving it on local temp 
