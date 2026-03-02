@@ -1,6 +1,5 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
@@ -14,6 +13,7 @@ from langchain_core.documents import Document
 from langchain_groq import ChatGroq
 from langsmith import Client
 import streamlit as st
+import hashlib
 import re
 import os
 
@@ -35,7 +35,7 @@ pc = Pinecone(api_key=os.getenv("PINECONE"))
 index_name = "research-assistant"
 
 # Create index if not exists
-existing_indexes = [index.name for index in pc.list_indexes()]
+existing_indexes = pc.list_indexes().names()
 
 if index_name not in existing_indexes:
     pc.create_index(
@@ -61,12 +61,6 @@ st.write("Upload The Pdfs")
 
 llm = ChatGroq(model ="llama-3.1-8b-instant" ,groq_api_key=api_key)
 
-
-#chat interface - making sessions
-
-## statefully manage Chat history
-if 'store' not in st.session_state:
-    st.session_state.store = {}
 
 
 ## for uploading the files
@@ -191,12 +185,27 @@ if uploaded_files:
         st.error("No valid text found in PDFs.")
         st.stop()
 
+    
+
+    docs_with_ids = []
+    ids = []
+
+    for doc in split_docs:
+        content_hash = hashlib.md5(doc.page_content.encode()).hexdigest()
+        docs_with_ids.append(doc)
+        ids.append(content_hash)
+
     vectorstore = PineconeVectorStore.from_documents(
-        documents=split_docs,
+        documents=docs_with_ids,
         embedding=embeddings,
         index_name=index_name,
-        namespace=namespace
+        namespace=namespace,
+        ids=ids
     )
+    if not uploaded_files:
+        stats = pc.describe_index(index_name).namespaces
+        if namespace not in stats:
+            st.warning("No documents found for this Member ID. Please upload PDFs first.")
 
 else:
     # Load existing user namespace
@@ -206,10 +215,14 @@ else:
         namespace=namespace
     )
 
-retriever = vectorstore.as_retriever(
-    search_type="mmr",
-    search_kwargs={"k": 6, "lambda_mult": 0.5}
-)
+@st.cache_resource
+def get_retriever(vectorstore):
+    return vectorstore.as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": 6, "lambda_mult": 0.5}
+    )
+
+retriever = get_retriever(vectorstore)
 
 rewrite_system_prompt = """
 You are a query rewriting assistant.
