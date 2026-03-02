@@ -209,15 +209,20 @@ else:
     )
 
     # namespace existence check
-    stats = pc.describe_index_stats()
-    if namespace not in stats["namespaces"]:
-        st.warning("No documents found for this Member ID. Please upload PDFs first.")
+    try:
+        index = pc.Index(index_name)
+        stats = index.describe_index_stats()
+
+        if namespace not in stats["namespaces"]:
+            st.warning("No documents found for this Member ID. Please upload PDFs first.")
+    except Exception:
+        st.warning("Could not retrieve namespace stats.")
 
 
 ## making a cache resource 
 @st.cache_resource
-def get_retriever(vectorstore):
-    return vectorstore.as_retriever(
+def get_retriever(_vectorstore):
+    return _vectorstore.as_retriever(
         search_type="mmr",
         search_kwargs={"k": 6, "lambda_mult": 0.5}
     )
