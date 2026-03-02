@@ -42,7 +42,7 @@ llm = ChatGroq(model ="llama-3.1-8b-instant" ,groq_api_key=api_key)
 
 
 #chat interface - making sessions
-session_id = st.text_input("Session ID",value = "default-session")
+
 ## statefully manage Chat history
 if 'store' not in st.session_state:
     st.session_state.store = {}
@@ -56,9 +56,9 @@ uploaded_files = st.sidebar.file_uploader(
     type="pdf",
     accept_multiple_files=True
 )
-
+session_id = st.sidebar.text_input("Session ID",value = "default-session")
 ## separating all files and saving it on local temp 
-
+os.makedirs("temp", exist_ok=True)
 if uploaded_files:
     for uploaded_file in uploaded_files:   # From Streamlit uploader
         file_path = f"./temp/{uploaded_file.name}"
@@ -95,11 +95,14 @@ def structure_aware_chunking(documents, chunk_size=800, chunk_overlap=100):
         # - Numbered sections like 1., 1.1, 2.3.4
         # - ALL CAPS headings
         sections = re.split(
-            r'(?=\n\d+(\.\d+)*\s)|(?=\n[A-Z][A-Z\s]{3,}\n)',
-            text
+        r"(?=\n\d+(?:\.\d+)*\s)|(?=\n[A-Z][A-Z\s]{3,}\n)",
+        text
         )
         
         for section in sections:
+            if not isinstance(section, str):
+                continue
+
             section = section.strip()
             if not section:
                 continue
@@ -178,23 +181,23 @@ history_aware_retriever = create_history_aware_retriever(
 qa_system_prompt = """
 You are an AI research assistant helping users analyze academic documents.
 
-Use ONLY the information provided inside the <context> tags to answer the question.
+Your task is to answer the user's question using ONLY the information provided inside the <context> tags.
 
 <context>
 {context}
 </context>
 
-If the answer is not found in the provided documents, clearly state:
-"The answer is not found in the provided documents."
+Instructions:
 
-Rules:
-- Do NOT use external knowledge.
-- Do NOT make assumptions.
-- Do NOT fabricate information.
-- Provide a precise and academically accurate response.
-- Mention source and page number if available.
+1. If the answer can be reasonably inferred from the provided context, provide a clear and academically accurate answer.
+2. Do NOT use external knowledge.
+3. Do NOT fabricate information.
+4. If the context truly does not contain relevant information, respond exactly with:
+   "The answer is not found in the provided documents."
+5. When possible, mention the source and page number.
+
+Be precise, structured, and factual.
 """
-
 qa_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", qa_system_prompt),
@@ -238,7 +241,9 @@ if user_input:
     st.write("### Assistant Response")
     st.write(response["answer"])
 
-    # 🔥 Display Source + Page Numbers
+
+    st.write("Retrieved Documents:")
+    
     if "context" in response:
 
         st.write("### Sources: ")
