@@ -35,28 +35,35 @@ pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 ## creating a function to get the uploaded file of the user with his user id
 def get_uploaded_files(pc, index_name, namespace):
     index = pc.Index(index_name)
-    
     stats = index.describe_index_stats()
-    
+
+    st.write("All namespaces:", stats["namespaces"])
+    st.write("Current namespace:", namespace)
+    # If namespace does not exist
     if namespace not in stats["namespaces"]:
         return []
-    
-    # Query some vectors to collect metadata
+
+    # If namespace exists but no vectors
+    if stats["namespaces"][namespace]["vector_count"] == 0:
+        return []
+
+    # Fetch small batch of vectors properly
     query_response = index.query(
         namespace=namespace,
-        vector=[0.0] * 384,  # dummy vector
-        top_k=100,
+        vector=[0.1] * 384,   # non-zero dummy vector
+        top_k=50,
         include_metadata=True
     )
-    
+
     files = set()
-    
-    for match in query_response["matches"]:
+
+    for match in query_response.get("matches", []):
         metadata = match.get("metadata", {})
         if "source" in metadata:
             files.add(metadata["source"])
-    
+
     return list(files)
+
 index_name = "research-assistant"
 
 # Create index if not exists
@@ -72,6 +79,8 @@ if index_name not in existing_indexes:
             region="us-east-1"
         )
     )
+st.write("Available indexes:", pc.list_indexes().names())
+st.write("Using index:", index_name)
 api_key = os.getenv("GROQ")
 
 
@@ -257,14 +266,11 @@ else:
 
 
 ## making a cache resource 
-@st.cache_resource
-def get_retriever(_vectorstore):
-    return _vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": 6, "lambda_mult": 0.5}
-    )
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 6, "lambda_mult": 0.5}
+)
 
-retriever = get_retriever(vectorstore)
 
 rewrite_system_prompt = """
 You are a query rewriting assistant.
