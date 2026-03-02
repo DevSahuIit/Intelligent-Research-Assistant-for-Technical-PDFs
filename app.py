@@ -3,6 +3,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
+from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -12,6 +13,8 @@ from pinecone import Pinecone, ServerlessSpec
 from langchain_core.documents import Document
 from langchain_groq import ChatGroq
 from langsmith import Client
+from datasets import Dataset
+from ragas import evaluate
 import streamlit as st
 import hashlib
 import re
@@ -25,10 +28,11 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "Advanced-bot"
 
 ## setting up the hugging face embeddings
-os.environ['HF_TOKEN'] = os.getenv("HUGGINFACE_TOKEN")
 
-embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
-
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+)
 ## setting up the pinecone 
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
@@ -343,11 +347,61 @@ user_input = st.text_input("Your Question:")
 if user_input:
 
     response = conversational_rag_chain.invoke(
-        {"input": user_input},
-        config={
-            "configurable": {"session_id": session_id}
+    {"input": user_input},
+    config={"configurable": {"session_id": session_id}}
+)
+
+    # -----------------------------
+    # Extract RAG components
+    # -----------------------------
+    question = user_input
+    answer = response["answer"]
+    contexts = [doc.page_content for doc in response.get("context", [])]
+
+    # Display answer
+    st.write("### Assistant Response")
+    st.write(answer)
+
+    # -----------------------------
+    # Optional RAGAS Evaluation
+    # -----------------------------
+    if st.sidebar.checkbox("Run RAGAS Evaluation"):
+
+        from datasets import Dataset
+        from ragas import evaluate
+        from ragas.metrics import (
+            faithfulness,
+            answer_relevancy,
+            context_precision,
+            context_recall,
+        )
+
+        data = {
+            "question": [question],
+            "answer": [answer],
+            "contexts": [contexts],
         }
-    )
+
+        dataset = Dataset.from_dict(data)
+
+        evaluator_llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=api_key,
+        temperature=0,
+        n=1
+            )
+        result = evaluate(
+        dataset,
+        metrics=[faithfulness, answer_relevancy],
+        llm=evaluator_llm
+        )
+
+        st.write("### RAGAS Evaluation Scores")
+
+        scores = result.scores[0]
+        st.write(
+        f"Faithfulness: {round(scores["faithfulness"], 3)}",
+        )
 
     
     st.write("### Assistant Response")
