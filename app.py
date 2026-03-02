@@ -30,7 +30,7 @@ os.environ['HF_TOKEN'] = os.getenv("HUGGINFACE_TOKEN")
 embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
 
 ## setting up the pinecone 
-pc = Pinecone(api_key=os.getenv("PINECONE"))
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
 index_name = "research-assistant"
 
@@ -174,8 +174,6 @@ def structure_aware_chunking(documents, chunk_size=800, chunk_overlap=100):
                 start += chunk_size - chunk_overlap
     
     return structured_docs
-
-
 
 # PINECONE VECTORSTORE LOGIC
 if uploaded_files:
