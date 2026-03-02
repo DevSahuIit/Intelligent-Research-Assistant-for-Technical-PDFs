@@ -8,8 +8,9 @@ from langchain_classic.chains.combine_documents import create_stuff_documents_ch
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langsmith import Client
 import streamlit as st
@@ -27,6 +28,25 @@ os.environ["LANGCHAIN_PROJECT"] = "Advanced-bot"
 os.environ['HF_TOKEN'] = os.getenv("HUGGINFACE_TOKEN")
 
 embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
+
+## setting up the pinecone 
+pc = Pinecone(api_key=os.getenv("PINECONE"))
+
+index_name = "research-assistant"
+
+# Create index if not exists
+existing_indexes = [index.name for index in pc.list_indexes()]
+
+if index_name not in existing_indexes:
+    pc.create_index(
+        name=index_name,
+        dimension=384,  # all-MiniLM-L6-v2 embedding size
+        metric="cosine",
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
+    )
 api_key = os.getenv("GROQ")
 
 
@@ -58,35 +78,41 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
+member_id = st.sidebar.text_input("Enter Member ID")
+
+if not member_id:
+    st.warning("Please enter your Member ID.")
+    st.stop()
+
+namespace = member_id
+
 # =========================
-# SESSION MANAGER (Fixed)
+# MULTI-SESSION PER USER
 # =========================
 
-if "store" not in st.session_state:
-    st.session_state.store = {}
+if "chat_store" not in st.session_state:
+    st.session_state.chat_store = {}
 
-# Create default session if empty
-if not st.session_state.store:
-    st.session_state.store["default-session"] = ChatMessageHistory()
+if member_id not in st.session_state.chat_store:
+    st.session_state.chat_store[member_id] = {}
 
-# Input to create new session
+user_sessions = st.session_state.chat_store[member_id]
+
 new_session = st.sidebar.text_input("Create New Session")
 
 if st.sidebar.button("Add Session"):
-    if new_session and new_session not in st.session_state.store:
-        st.session_state.store[new_session] = ChatMessageHistory()
+    if new_session and new_session not in user_sessions:
+        user_sessions[new_session] = ChatMessageHistory()
         st.sidebar.success(f"Session '{new_session}' created!")
-        st.rerun()   # 🔥 THIS FIXES YOUR ISSUE
+        st.rerun()
 
-# Now regenerate session list AFTER possible addition
-existing_sessions = list(st.session_state.store.keys())
+if not user_sessions:
+    user_sessions["default-session"] = ChatMessageHistory()
 
-# Dropdown selector
 session_id = st.sidebar.selectbox(
     "Select Session",
-    options=existing_sessions,
+    options=list(user_sessions.keys())
 )
-
 
 ## separating all files and saving it on local temp 
 os.makedirs("temp", exist_ok=True)
@@ -155,7 +181,9 @@ def structure_aware_chunking(documents, chunk_size=800, chunk_overlap=100):
     
     return structured_docs
 
-if all_docs:
+
+# PINECONE VECTORSTORE LOGIC
+if uploaded_files:
 
     split_docs = structure_aware_chunking(all_docs, chunk_size=800)
 
@@ -163,26 +191,25 @@ if all_docs:
         st.error("No valid text found in PDFs.")
         st.stop()
 
-    vectorstore = Chroma.from_documents(
+    vectorstore = PineconeVectorStore.from_documents(
         documents=split_docs,
         embedding=embeddings,
-        persist_directory="./chroma_db"
+        index_name=index_name,
+        namespace=namespace
     )
 
-    retriever = vectorstore.as_retriever()
-
 else:
-    st.warning("Please upload at least one PDF.")
-    st.stop()
+    # Load existing user namespace
+    vectorstore = PineconeVectorStore(
+        index_name=index_name,
+        embedding=embeddings,
+        namespace=namespace
+    )
 
-
-vectorstore = Chroma.from_documents(
-    documents=split_docs,
-    embedding=embeddings,
-    persist_directory="./chroma_db"
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 6, "lambda_mult": 0.5}
 )
-
-retriever = vectorstore.as_retriever()
 
 rewrite_system_prompt = """
 You are a query rewriting assistant.
@@ -245,9 +272,7 @@ rag_chain = create_retrieval_chain(
 )
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
-    if session_id not in st.session_state.store:
-        st.session_state.store[session_id] = ChatMessageHistory()
-    return st.session_state.store[session_id]
+    return st.session_state.chat_store[member_id][session_id]
 
 conversational_rag_chain = RunnableWithMessageHistory(
     rag_chain,

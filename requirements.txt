@@ -10,3 +10,5 @@ pypdf
 langchain-groq
 huggingface_hub
 python-dotenv
+pinecone 
+langchain-pinecone
