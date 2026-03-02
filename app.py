@@ -32,10 +32,11 @@ api_key = os.getenv("GROQ")
 
 ## setting up the langsmith and checking if it works 
 client = Client()
-st.write("LangSmith connected successfully")
+
 
 
 st.title("Intelligent-Research-Assistant-for-Technical-PDFs")
+st.write("LangSmith connected successfully")
 st.write("Upload The Pdfs")
 
 llm = ChatGroq(model ="llama-3.1-8b-instant" ,groq_api_key=api_key)
@@ -56,7 +57,37 @@ uploaded_files = st.sidebar.file_uploader(
     type="pdf",
     accept_multiple_files=True
 )
-session_id = st.sidebar.text_input("Session ID",value = "default-session")
+
+# =========================
+# SESSION MANAGER (Sidebar)
+# =========================
+
+if "store" not in st.session_state:
+    st.session_state.store = {}
+
+# Existing sessions list
+existing_sessions = list(st.session_state.store.keys())
+
+# Dropdown to select session
+selected_session = st.sidebar.selectbox(
+    "Select Session",
+    options=existing_sessions if existing_sessions else ["default-session"]
+)
+
+# Input to create new session
+new_session = st.sidebar.text_input("Create New Session")
+
+if st.sidebar.button("Add Session"):
+    if new_session and new_session not in st.session_state.store:
+        st.session_state.store[new_session] = ChatMessageHistory()
+        st.sidebar.success(f"Session '{new_session}' created!")
+        selected_session = new_session
+
+# Final session_id used
+session_id = selected_session
+
+
+
 ## separating all files and saving it on local temp 
 os.makedirs("temp", exist_ok=True)
 if uploaded_files:
