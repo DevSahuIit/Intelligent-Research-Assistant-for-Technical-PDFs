@@ -176,6 +176,7 @@ def structure_aware_chunking(documents, chunk_size=800, chunk_overlap=100):
     return structured_docs
 
 
+
 # PINECONE VECTORSTORE LOGIC
 if uploaded_files:
 
@@ -185,13 +186,12 @@ if uploaded_files:
         st.error("No valid text found in PDFs.")
         st.stop()
 
-    
-
     docs_with_ids = []
     ids = []
 
     for doc in split_docs:
-        content_hash = hashlib.md5(doc.page_content.encode()).hexdigest()
+        unique_string = doc.page_content + doc.metadata["source"]
+        content_hash = hashlib.md5(unique_string.encode()).hexdigest()
         docs_with_ids.append(doc)
         ids.append(content_hash)
 
@@ -202,19 +202,21 @@ if uploaded_files:
         namespace=namespace,
         ids=ids
     )
-    if not uploaded_files:
-        stats = pc.describe_index(index_name).namespaces
-        if namespace not in stats:
-            st.warning("No documents found for this Member ID. Please upload PDFs first.")
 
 else:
-    # Load existing user namespace
     vectorstore = PineconeVectorStore(
         index_name=index_name,
         embedding=embeddings,
         namespace=namespace
     )
 
+    # namespace existence check
+    stats = pc.describe_index_stats()
+    if namespace not in stats["namespaces"]:
+        st.warning("No documents found for this Member ID. Please upload PDFs first.")
+
+
+## making a cache resource 
 @st.cache_resource
 def get_retriever(vectorstore):
     return vectorstore.as_retriever(
